@@ -28,7 +28,8 @@ import re
 
 import argparse
 
-RESPONSE_TIMEOUT = 3.0
+RESPONSE_TIMEOUT = 1.0
+QUERY_RETRIES = 1
 
 COLOR_RESET = '\033[0m'
 ARENA_COLORS = {
@@ -175,13 +176,20 @@ class QueryDispatcher:
         for query in self.queries.values():
             query.send_getstatus(self._socket)
 
+    def pending(self):
+        return any((q.pending() for q in self.queries.values()))
+
+    def retry(self):
+        for query in self.queries.values():
+            query.retry(self._socket)
+
     def recv(self, timeout=RESPONSE_TIMEOUT):
         late = time.time() + timeout
-        while any((q.pending() for q in self.queries.values())):
+        while self.pending():
             timeout = late - time.time()
             if timeout <= 0:
                 print("Warning: timed out waiting for response(s)", file=sys.stderr)
-                break
+                return False
             (r, _, _) = select.select([self._socket], [], [], timeout)
             if not len(r):
                 continue
@@ -200,11 +208,7 @@ class QueryDispatcher:
                 self.queries[raddr].parse_response(data)
             except ArenaError as e:
                 print("Error when parsing packet from {}: {}".format(raddr, e), file=sys.stderr)
-        for query in self.queries.values():
-            if query.pending_info():
-                print("Warning: did not receive a valid info response from {}".format(query.addr()), file=sys.stderr)
-            if query.pending_status():
-                print("Warning: did not receive a valid status response from {}".format(query.addr()), file=sys.stderr)
+        return True
 
     def collect(self):
         l = [q.build_info() for q in self.queries.values()]
@@ -231,8 +235,7 @@ class ServerQuery:
         self._statusinfo = None
         self._players = None
 
-        self._challenge_status = None
-        self._challenge_info = None
+        self.reset()
 
     def build_info(self):
         if (self._info is None
@@ -240,6 +243,10 @@ class ServerQuery:
                 or self._players is None):
             return None
         return ServerInfo(self.ip, self.port, self._info, self._statusinfo, self._players)
+
+    def reset(self):
+        self._challenge_info = None
+        self._challenge_status = None
 
     def pending_info(self):
         return self._challenge_info is not None
@@ -257,14 +264,22 @@ class ServerQuery:
         sock.sendto(CONNECTIONLESS_PREFIX + request, (self.ip, self.port))
 
     def send_getinfo(self, sock):
-        self._challenge_info = _generate_challenge()
+        if not self._challenge_info:
+            self._challenge_info = _generate_challenge()
         request = b"".join((b"getinfo ", self._challenge_info, b"\n"))
         self._send_request(request, sock)
 
     def send_getstatus(self, sock):
-        self._challenge_status = _generate_challenge()
+        if not self._challenge_status:
+            self._challenge_status = _generate_challenge()
         request = b"".join((b"getstatus ", self._challenge_status, b"\n"))
         self._send_request(request, sock)
+
+    def retry(self, sock):
+        if self.pending_info():
+            self.send_getinfo(sock)
+        if self.pending_status():
+            self.send_getstatus(sock)
 
     def parse_response(self, data):
         if not data.startswith(CONNECTIONLESS_PREFIX):
@@ -303,7 +318,7 @@ class ArenaError(Exception):
     def __init__(self, message):
         self.message = message
 
-def query_servers(addrs):
+def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     dispatcher = QueryDispatcher(sock)
@@ -312,7 +327,16 @@ def query_servers(addrs):
 
     dispatcher.getinfo()
     dispatcher.getstatus()
-    dispatcher.recv()
+    while not dispatcher.recv(timeout) and retries > 0:
+        retries -= 1
+        dispatcher.retry()
+
+    for query in dispatcher.queries.values():
+        if query.pending_info():
+            print("Warning: did not receive a valid info response from {}".format(query.addr()), file=sys.stderr)
+        if query.pending_status():
+            print("Warning: did not receive a valid status response from {}".format(query.addr()), file=sys.stderr)
+
     return dispatcher.collect()
 
 def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False):
@@ -371,6 +395,8 @@ if __name__ == '__main__':
     parser.add_argument('--empty', action='store_true', help='show empty servers')
     parser.add_argument('--bots', action='store_true', help='show bots')
     parser.add_argument('--sort', action='store_true', help='enable sorting')
+    parser.add_argument('--timeout', metavar='SECONDS', type=float, default=RESPONSE_TIMEOUT, help='timeout, in seconds')
+    parser.add_argument('--retries', type=int, default=QUERY_RETRIES, help='number of retries')
     args = parser.parse_args()
 
     addrs = []
@@ -386,7 +412,15 @@ if __name__ == '__main__':
             print("invalid server address {}".format(srv), file=sys.stderr)
             sys.exit(1)
 
-    server_infos =  query_servers(addrs)
+    if args.timeout <= 0:
+        print("invalid timeout {}".format(args.timeout), file=sys.stderr)
+        sys.exit(1)
+
+    if args.retries < 0:
+        print("invalid retries {}".format(args.retries), file=sys.stderr)
+        sys.exit(1)
+
+    server_infos =  query_servers(addrs, args.timeout, args.retries)
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
     pretty_print(server_infos, args.empty, colors, args.bots, args.sort)
