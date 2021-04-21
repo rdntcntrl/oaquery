@@ -216,8 +216,10 @@ class QueryDispatcher:
 
 
 def _parse_infostring(s):
-    s = s.removeprefix(b'\\')
-    tokens = s.split(b'\\')
+    delim = b'\\'
+    if s.startswith(delim):
+        s = s[len(delim):]
+    tokens = s.split(delim)
     return dict(
             zip((k.lower() for k in itertools.islice(tokens,0,None,2)),
                 itertools.islice(tokens,1,None,2))
