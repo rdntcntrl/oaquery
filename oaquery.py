@@ -25,6 +25,7 @@ import itertools
 import sys
 import secrets
 import re
+import enum
 
 import argparse
 
@@ -50,6 +51,7 @@ CONNECTIONLESS_PREFIX = b"\xff\xff\xff\xff"
 RESPONSE_INFO   = b"infoResponse\n"
 RESPONSE_STATUS = b"statusResponse\n"
 MAX_MSGLEN = 16384
+
 
 class ServerInfo:
     def __init__(self, ip, port, info, status, players):
@@ -93,6 +95,15 @@ class ServerInfo:
 
     def game(self):
         return self._getinfostr(b'game')
+
+    def gametypenum(self):
+        return self._getinfou(b'gametype')
+
+    def gametype(self):
+        try:
+            return Gametype(self.gametypenum())
+        except ValueError:
+            return Gametype.UNKNOWN;
 
     def num_humans(self):
         return self._getinfou(b'g_humanplayers')
@@ -158,7 +169,58 @@ def player_from_str(s):
     except:
         return None
 
+@enum.unique
+class Gametype(enum.Enum):
+    FFA             = 0
+    TOURNAMENT      = 1
+    SINGLE_PLAYER   = 2
+    TEAM            = 3
+    CTF             = 4
+    ONEFCTF         = 5
+    OBELISK         = 6
+    HARVESTER       = 7
+    ELIMINATION     = 8
+    CTF_ELIMINATION = 9
+    LMS             = 10
+    DOUBLE_D        = 11
+    DOMINATION      = 12
+    TREASURE_HUNTER = 13
+    MULTITOURNAMENT = 14
+    UNKNOWN         = -1
 
+    def __str__(self):
+        if self == Gametype.FFA:
+            return "Free For All";
+        if self == Gametype.SINGLE_PLAYER:
+            return "Single Player";
+        if self == Gametype.TOURNAMENT:
+            return "Tournament";
+        if self == Gametype.TEAM:
+            return "Team Deathmatch";
+        if self == Gametype.CTF:
+            return "Capture The Flag";
+        if self == Gametype.ONEFCTF:
+            return "One Flag CTF";
+        if self == Gametype.OBELISK:
+            return "Overload";
+        if self == Gametype.HARVESTER:
+            return "Harvester";
+        if self == Gametype.ELIMINATION:
+            return "Elimination";
+        if self == Gametype.CTF_ELIMINATION:
+            return "CTF Elimination";
+        if self == Gametype.LMS:
+            return "Last Man Standing";
+        if self == Gametype.DOUBLE_D:
+            return "Double Domination";
+        if self == Gametype.DOMINATION:
+            return "Domination";
+        if self == Gametype.TREASURE_HUNTER:
+            return "Treasure Hunter";
+        if self == Gametype.MULTITOURNAMENT:
+            return "Multitournament";
+
+        return "Unknown Gametype";
 
 class QueryDispatcher:
     def __init__(self, socket):
