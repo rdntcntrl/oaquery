@@ -92,7 +92,7 @@ class ServerInfo:
         return self._getinfostr(b'mapname')
 
     def game(self):
-        self._getinfostr(b'game')
+        return self._getinfostr(b'game')
 
     def num_humans(self):
         return self._getinfou(b'g_humanplayers')
