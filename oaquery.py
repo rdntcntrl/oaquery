@@ -101,8 +101,9 @@ class ServerInfo:
 
     def gametype(self):
         try:
-            return Gametype(self.gametypenum())
-        except ValueError:
+            gtn = int(self._getinfo(b'gametype'))
+            return Gametype(gtn)
+        except (ValueError, KeyError):
             return Gametype.UNKNOWN;
 
     def num_humans(self):
