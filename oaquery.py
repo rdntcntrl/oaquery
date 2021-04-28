@@ -26,6 +26,7 @@ import sys
 import secrets
 import re
 import enum
+import html
 
 import argparse
 
@@ -43,6 +44,18 @@ ARENA_COLORS = {
         '6' : '\033[0;35m',
         '7' : '\033[0;37m',
         '8' : '\033[0;41m',
+        }
+
+ARENA_HTML_COLORS = {
+        '0' : '000000',
+        '1' : 'ff0000',
+        '2' : '00ff00',
+        '3' : 'ffff00',
+        '4' : '0000ff',
+        '5' : '00ffff',
+        '6' : 'ff00ff',
+        '7' : 'ffffff',
+        '8' : 'ff6d00',
         }
 
 CHALLENGE_BYTES = 8
@@ -150,6 +163,28 @@ class ArenaString:
         if color:
             return re.sub(pat, termcolor, self.s) + COLOR_RESET
         return re.sub(pat, "", self.s)
+
+    def gethtml(self):
+        res = []
+        pat = "\^[0-8]"
+        lastidx = 0
+        tag_open = False
+        for match in re.finditer(pat, self.s):
+            cs = match.group(0).lstrip('^')
+            if cs not in ARENA_HTML_COLORS:
+                continue
+            p = self.s[lastidx:match.start()]
+            res.append(html.escape(p))
+            lastidx = match.end()
+            if tag_open:
+                res.append('</font>')
+            res.append('<font color="{}">'.format(ARENA_HTML_COLORS[cs]))
+            tag_open = True
+        p = self.s[lastidx:]
+        res.append(html.escape(p))
+        if tag_open:
+            res.append('</font>')
+        return ''.join(res)
 
 class Player:
     def __init__(self, name, score=0, ping=0):
