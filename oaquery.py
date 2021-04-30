@@ -190,7 +190,7 @@ class ArenaString:
             lastidx = match.end()
             if tag_open:
                 res.append('</font>')
-            res.append('<font color="{}">'.format(ARENA_HTML_COLORS[cs]))
+            res.append('<font color="#{}">'.format(ARENA_HTML_COLORS[cs]))
             tag_open = True
         p = self.s[lastidx:]
         res.append(html.escape(p))
