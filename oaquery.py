@@ -142,6 +142,18 @@ def printable_string(s):
     s = s.decode(encoding='ascii', errors='replace')
     return ''.join((c if c.isprintable() else '\uFFFD' for c in s))
 
+ARENA_CHARMAP = "⏺◢▬◣▌\uFFFD▐◥▀◤▁█\uFFFD▶\uFFFD\uFFFD[]┏━┓▌\uFFFD▐┗━┛\uFFFD┘◄━►"
+
+def _arena_printable_char(c):
+    if ord(c) < len(ARENA_CHARMAP):
+        c = ARENA_CHARMAP[ord(c)]
+    if c.isprintable():
+        return c
+    return '\uFFFD'
+
+def _arena_printable_string(s):
+    s = s.decode(encoding='ascii', errors='replace')
+    return ''.join((_arena_printable_char(c) for c in s))
 
 def termcolor(match):
     try:
@@ -151,7 +163,7 @@ def termcolor(match):
 
 class ArenaString:
     def __init__(self, s):
-        self.s = printable_string(s)
+        self.s = _arena_printable_string(s)
 
     def strip(self):
         stripped = ArenaString(b"")
