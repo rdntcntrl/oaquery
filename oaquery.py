@@ -161,6 +161,10 @@ def termcolor(match):
     except:
         return match.group(0)
 
+
+def _html_fonttag(color):
+    return '<font color="#{}">'.format(color)
+
 class ArenaString:
     def __init__(self, s):
         self.s = _arena_printable_string(s)
@@ -173,14 +177,14 @@ class ArenaString:
     def getstr(self, color=False):
         pat = "\^[0-8]"
         if color:
-            return re.sub(pat, termcolor, self.s) + COLOR_RESET
+            return ARENA_COLORS['7'] + re.sub(pat, termcolor, self.s) + COLOR_RESET
         return re.sub(pat, "", self.s)
 
     def gethtml(self):
         res = []
         pat = "\^[0-8]"
         lastidx = 0
-        tag_open = False
+        res.append(_html_fonttag(ARENA_HTML_COLORS['7']))
         for match in re.finditer(pat, self.s):
             cs = match.group(0).lstrip('^')
             if cs not in ARENA_HTML_COLORS:
@@ -188,14 +192,11 @@ class ArenaString:
             p = self.s[lastidx:match.start()]
             res.append(html.escape(p))
             lastidx = match.end()
-            if tag_open:
-                res.append('</font>')
-            res.append('<font color="#{}">'.format(ARENA_HTML_COLORS[cs]))
-            tag_open = True
+            res.append('</font>')
+            res.append(_html_fonttag(ARENA_HTML_COLORS[cs]))
         p = self.s[lastidx:]
         res.append(html.escape(p))
-        if tag_open:
-            res.append('</font>')
+        res.append('</font>')
         return ''.join(res)
 
 class Player:
