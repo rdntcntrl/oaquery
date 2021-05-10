@@ -180,20 +180,20 @@ class ArenaString:
             return ARENA_COLORS['7'] + re.sub(pat, termcolor, self.s) + COLOR_RESET
         return re.sub(pat, "", self.s)
 
-    def gethtml(self):
+    def gethtml(self, palette=ARENA_HTML_COLORS):
         res = []
         pat = "\^[0-8]"
         lastidx = 0
-        res.append(_html_fonttag(ARENA_HTML_COLORS['7']))
+        res.append(_html_fonttag(palette['7']))
         for match in re.finditer(pat, self.s):
             cs = match.group(0).lstrip('^')
-            if cs not in ARENA_HTML_COLORS:
+            if cs not in palette:
                 continue
             p = self.s[lastidx:match.start()]
             res.append(html.escape(p))
             lastidx = match.end()
             res.append('</font>')
-            res.append(_html_fonttag(ARENA_HTML_COLORS[cs]))
+            res.append(_html_fonttag(palette[cs]))
         p = self.s[lastidx:]
         res.append(html.escape(p))
         res.append('</font>')
