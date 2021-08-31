@@ -174,6 +174,12 @@ class ArenaString:
         stripped.s = self.s.strip()
         return stripped
 
+    def normalize(self):
+        normalized = self.strip()
+        # remove color, collapse spaces
+        normalized.s = re.sub("\s+", " ", normalized.getstr(color=False))
+        return normalized
+
     def getstr(self, color=False):
         pat = "\^[0-8]"
         if color:
