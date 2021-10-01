@@ -63,7 +63,12 @@ CHALLENGE_BYTES = 8
 CONNECTIONLESS_PREFIX = b"\xff\xff\xff\xff"
 RESPONSE_INFO   = b"infoResponse\n"
 RESPONSE_STATUS = b"statusResponse\n"
+RESPONSE_SERVERS   = b"getserversResponse"
 MAX_MSGLEN = 16384
+
+Q3A_PROTOCOL = 71
+PORT_MASTER = 27950
+PORT_DEFAULT = 27960
 
 
 class ServerInfo:
@@ -282,16 +287,29 @@ class QueryDispatcher:
         self.queries = {}
         self._socket = socket
 
+    def clear(self):
+        self.queries.clear()
+
     def insert(self, query):
         self.queries[query.addr()] = query
 
+    def server_queries(self):
+        return [q for q in self.queries.values() if isinstance(q, ServerQuery)]
+
+    def master_queries(self):
+        return [q for q in self.queries.values() if isinstance(q, MasterQuery)]
+
     def getinfo(self):
-        for query in self.queries.values():
+        for query in self.server_queries():
             query.send_getinfo(self._socket)
 
     def getstatus(self):
-        for query in self.queries.values():
+        for query in self.server_queries():
             query.send_getstatus(self._socket)
+
+    def getservers(self):
+        for query in self.master_queries():
+            query.send_getservers(self._socket)
 
     def pending(self):
         return any((q.pending() for q in self.queries.values()))
@@ -327,9 +345,21 @@ class QueryDispatcher:
                 print("Error when parsing packet from {}: {}".format(raddr, e), file=sys.stderr)
         return True
 
-    def collect(self):
-        l = [q.build_info() for q in self.queries.values()]
+    def collect_server(self):
+        l = [q.build_info() for q in self.server_queries()]
         return [info for info in l if info]
+
+    def collect(self):
+        return self.collect_server()
+
+    def collect_master(self):
+        servers = set()
+        l = [q.servers() for q in self.master_queries()]
+        for addrs in l:
+            if addrs is None:
+                continue
+            servers.update(addrs)
+        return servers
 
 
 def _parse_infostring(s):
@@ -345,10 +375,29 @@ def _parse_infostring(s):
 def _generate_challenge(sz=CHALLENGE_BYTES):
     return secrets.token_hex(sz).encode()
 
-class ServerQuery:
+class Query:
     def __init__(self, ip, port):
         self.ip = ip
         self.port = port
+
+    def pending(self):
+        return False
+
+    def retry(self):
+        pass
+
+    def parse_response(self, data):
+        pass
+
+    def addr(self):
+        return (self.ip, self.port)
+
+    def _send_request(self, request, sock):
+        sock.sendto(CONNECTIONLESS_PREFIX + request, (self.ip, self.port))
+
+class ServerQuery(Query):
+    def __init__(self, ip, port):
+        super().__init__(ip, port)
 
         self._info = None
         self._statusinfo = None
@@ -376,12 +425,6 @@ class ServerQuery:
     def pending(self):
         return self.pending_info() or self.pending_status()
 
-    def addr(self):
-        return (self.ip, self.port)
-
-    def _send_request(self, request, sock):
-        sock.sendto(CONNECTIONLESS_PREFIX + request, (self.ip, self.port))
-
     def send_getinfo(self, sock):
         if not self._challenge_info:
             self._challenge_info = _generate_challenge()
@@ -402,7 +445,7 @@ class ServerQuery:
 
     def parse_response(self, data):
         if not data.startswith(CONNECTIONLESS_PREFIX):
-            raise ArenaError("invalid connectionless packet packet")
+            raise ArenaError("invalid connectionless packet")
 
         data = data[len(CONNECTIONLESS_PREFIX):]
 
@@ -433,9 +476,95 @@ class ServerQuery:
         self._challenge_status = None
         self._players = [p for p in [player_from_str(s) for s in lines[1:-1]] if p]
 
+class MasterQuery(Query):
+    def __init__(self, ip, port):
+        super().__init__(ip, port)
+
+        self.reset()
+
+    def reset(self):
+        self._pending = False
+        self._servers = None
+
+    def pending(self):
+        return self._pending
+
+    def _send_request(self, request, sock):
+        super()._send_request(request, sock)
+        self._pending = True
+
+    def send_getservers(self, sock):
+        request = b"".join((b"getservers ", f"{Q3A_PROTOCOL}".encode(), b" empty full"))
+        self._send_request(request, sock)
+
+    def retry(self, sock):
+        if self.pending():
+            self.reset()
+            self.send_getservers(sock)
+
+    def parse_response(self, data):
+        if not data.startswith(CONNECTIONLESS_PREFIX):
+            raise ArenaError("invalid master packet")
+
+        data = data[len(CONNECTIONLESS_PREFIX):]
+
+        if data.lower().startswith(RESPONSE_SERVERS.lower()):
+            return self._parse_serversresponse(data[len(RESPONSE_SERVERS):])
+
+        raise ArenaError("unknown master packet type")
+
+    def _parse_serversresponse(self, data):
+        servers = _parse_infostring(data)
+        addrs = set()
+        elem_size = 7
+        for ipport in (data[i:i+elem_size] for i in range(0, len(data), elem_size)):
+            ipport = ipport[1:]
+            if ipport == b"EOT\0\0\0":
+                # last packet from master
+                self._pending = False
+                break
+            if len(ipport) != 6:
+                self._pending = False
+                raise ArenaError("invalid address format in getserversResponse")
+            ip = socket.inet_ntop(socket.AF_INET, ipport[:4])
+            port = int.from_bytes(ipport[4:], byteorder='big')
+            addrs.add((ip, port))
+
+        if self._servers is None:
+            self._servers = addrs
+        else:
+            self._servers.update(addrs)
+
+    def servers(self):
+        return self._servers
+
 class ArenaError(Exception):
     def __init__(self, message):
         self.message = message
+        
+def query_master(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    dispatcher = QueryDispatcher(sock)
+    for (ip, port) in addrs:
+        dispatcher.insert(MasterQuery(ip, port))
+
+    dispatcher.getservers()
+    while not dispatcher.recv(timeout) and retries > 0:
+        retries -= 1
+        dispatcher.retry()
+
+    for query in dispatcher.master_queries():
+        if query.pending():
+            print("Warning: did not receive a valid getservers response from master {}".format(query.addr()), file=sys.stderr)
+
+    return dispatcher.collect_master()
+
+def print_addrs(addrs, sort=False):
+    if sort:
+        addrs = sorted(addrs)
+    for (ip, port) in addrs:
+        print(f"{ip}:{port}")
 
 def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -450,7 +579,7 @@ def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
         retries -= 1
         dispatcher.retry()
 
-    for query in dispatcher.queries.values():
+    for query in dispatcher.server_queries():
         if query.pending_info():
             print("Warning: did not receive a valid info response from {}".format(query.addr()), file=sys.stderr)
         if query.pending_status():
@@ -508,7 +637,10 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Query OpenArena servers.')
-    parser.add_argument('servers', metavar='HOST:PORT', nargs='+', help='servers to query')
+    parser.add_argument('servers', metavar='HOST:PORT', nargs='+', help='servers to query.\
+            If --master or --all is used, these will be interpreted to be master servers.')
+    parser.add_argument('--master', action='store_true', help='query master servers instead of game servers')
+    parser.add_argument('--all', action='store_true', help='query all the game servers a master returns')
     parser.add_argument('--no-colors', action='store_true', help='disable color output')
     parser.add_argument('--colors', action='store_true', help='force color output')
     parser.add_argument('--empty', action='store_true', help='show empty servers')
@@ -522,7 +654,14 @@ if __name__ == '__main__':
     for srv in args.servers:
         try:
             l = srv.split(':')
-            raddr = (socket.gethostbyname(l[0]), int(l[1]))
+            ip = l[0]
+            if len(l) > 1:
+                port = int(l[1])
+            elif args.master or args.all:
+                port = PORT_MASTER
+            else:
+                port = PORT_DEFAULT
+            raddr = (socket.gethostbyname(ip), port)
             addrs.append(raddr)
         except socket.gaierror as e:
             print("Failed to resolve host: {}".format(e), file=sys.stderr)
@@ -539,9 +678,18 @@ if __name__ == '__main__':
         print("invalid retries {}".format(args.retries), file=sys.stderr)
         sys.exit(1)
 
-    server_infos =  query_servers(addrs, args.timeout, args.retries)
+    if args.all or args.master:
+        server_addresses = query_master(addrs, args.timeout, args.retries)
+        if not args.all:
+            print_addrs(server_addresses, args.sort)
+            sys.exit(0)
+    else:
+        server_addresses = addrs
+
+    server_infos =  query_servers(server_addresses, args.timeout, args.retries)
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
     pretty_print(server_infos, args.empty, colors, args.bots, args.sort)
+
     sys.exit(0)
 
