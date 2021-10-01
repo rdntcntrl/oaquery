@@ -70,6 +70,8 @@ Q3A_PROTOCOL = 71
 PORT_MASTER = 27950
 PORT_DEFAULT = 27960
 
+OPENARENA_DEFAULT_MASTER = "dpmaster.deathmask.net"
+
 
 class ServerInfo:
     def __init__(self, ip, port, info, status, players):
@@ -714,8 +716,10 @@ if __name__ == '__main__':
     parser.add_argument('servers', metavar='HOST:PORT', nargs='*', help='servers to query.\
             If --master or --all is used, these will be interpreted to be master servers.')
     parser.add_argument('--list-gametypes', action='store_true', help='list all known gametypes')
-    parser.add_argument('-m', '--master', action='store_true', help='query master servers instead of game servers')
-    parser.add_argument('-a', '--all', action='store_true', help='query all the game servers a master returns')
+    parser.add_argument('-m', '--master', action='store_true', help='query master servers instead of game servers. \
+            If no master server is specified, {} will be used by default'.format(OPENARENA_DEFAULT_MASTER))
+    parser.add_argument('-a', '--all', action='store_true', help='query all the game servers a master returns. \
+            If no master server is specified, {} will be used by default'.format(OPENARENA_DEFAULT_MASTER))
     parser.add_argument('--no-colors', action='store_true', help='disable color output')
     parser.add_argument('-c', '--colors', action='store_true', help='force color output')
     parser.add_argument('-e', '--empty', action='store_true', help='show empty servers')
@@ -733,9 +737,6 @@ if __name__ == '__main__':
         Gametype.printall()
         sys.exit(0)
 
-    if len(args.servers) == 0:
-        parser.error("error: the following arguments are required: HOST:PORT")
-
     if args.gametypes is not None:
         try:
             gametype_filter = Gametype.set_from_strs(args.gametypes)
@@ -748,8 +749,15 @@ if __name__ == '__main__':
     else:
         gametype_filter = None
 
+    query_addresses = args.servers
+    if len(query_addresses) == 0:
+        if args.all or args.master:
+            query_addresses = [OPENARENA_DEFAULT_MASTER]
+        else:
+            parser.error("error: the following arguments are required: HOST:PORT")
+
     addrs = []
-    for srv in args.servers:
+    for srv in query_addresses:
         try:
             l = srv.split(':')
             ip = l[0]
@@ -784,7 +792,7 @@ if __name__ == '__main__':
     else:
         server_addresses = addrs
 
-    server_infos =  query_servers(server_addresses, args.timeout, args.retries)
+    server_infos = query_servers(server_addresses, args.timeout, args.retries)
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
     pretty_print(server_infos, args.empty, colors, args.bots, args.sort,
