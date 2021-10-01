@@ -527,9 +527,10 @@ class ServerQuery(Query):
         self._players = [p for p in [player_from_str(s) for s in lines[1:-1]] if p]
 
 class MasterQuery(Query):
-    def __init__(self, ip, port):
+    def __init__(self, ip, port, empty=True):
         super().__init__(ip, port)
 
+        self.empty = empty
         self.reset()
 
     def reset(self):
@@ -544,7 +545,9 @@ class MasterQuery(Query):
         self._pending = True
 
     def send_getservers(self, sock):
-        request = b"".join((b"getservers ", f"{Q3A_PROTOCOL}".encode(), b" empty full"))
+        request = b"".join((b"getservers ", f"{Q3A_PROTOCOL}".encode(),
+            b" empty" if self.empty else b"",
+            b" full"))
         self._send_request(request, sock)
 
     def retry(self, sock):
@@ -592,12 +595,12 @@ class ArenaError(Exception):
     def __init__(self, message):
         self.message = message
         
-def query_master(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
+def query_master(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES, empty=True):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     dispatcher = QueryDispatcher(sock)
     for (ip, port) in addrs:
-        dispatcher.insert(MasterQuery(ip, port))
+        dispatcher.insert(MasterQuery(ip, port, empty))
 
     dispatcher.getservers()
     while not dispatcher.recv(timeout) and retries > 0:
@@ -774,7 +777,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if args.all or args.master:
-        server_addresses = query_master(addrs, args.timeout, args.retries)
+        server_addresses = query_master(addrs, args.timeout, args.retries, args.empty)
         if not args.all:
             print_addrs(server_addresses, args.sort)
             sys.exit(0)
