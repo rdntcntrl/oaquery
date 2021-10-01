@@ -230,7 +230,7 @@ def player_from_str(s):
         return None
 
 @enum.unique
-class Gametype(enum.Enum):
+class Gametype(enum.IntEnum):
     FFA             = 0
     TOURNAMENT      = 1
     SINGLE_PLAYER   = 2
@@ -281,6 +281,42 @@ class Gametype(enum.Enum):
             return "Multitournament";
 
         return "Unknown Gametype";
+
+    @staticmethod
+    def from_str(s):
+        try:
+            return Gametype(int(s))
+        except ValueError:
+            pass
+
+        s = s.lower()
+        for name, member in Gametype.__members__.items():
+            if name.lower() == s or str(member).lower() == s:
+                return member
+
+        raise ArenaError("unknown gametype {}".format(s))
+
+    @staticmethod
+    def set_from_strs(gts_list):
+        gt_set = set()
+        for gts in gts_list:
+            gt = Gametype.from_str(gts)
+            if gt == Gametype.TOURNAMENT:
+                gt_set.add(Gametype.MULTITOURNAMENT)
+            elif gt == Gametype.UNKNOWN:
+                continue
+            gt_set.add(gt)
+        return gt_set
+
+    @staticmethod
+    def printall():
+        for name, member in Gametype.__members__.items():
+            if member == Gametype.UNKNOWN:
+                continue
+            print(f"{int(member)}: {name} ({str(member)})")
+
+
+
 
 class QueryDispatcher:
     def __init__(self, socket):
@@ -587,11 +623,13 @@ def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
 
     return dispatcher.collect()
 
-def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False):
+def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False, gametype_filter=None):
     if sort:
         serverinfos = sorted(serverinfos, key=lambda x: x.num_humans(), reverse=True)
     for info in serverinfos:
         if not (show_empty or info.num_humans()):
+            continue
+        if gametype_filter is not None and info.gametype() not in gametype_filter:
             continue
         just = 21
         fields = []
@@ -643,8 +681,9 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Query OpenArena servers.')
-    parser.add_argument('servers', metavar='HOST:PORT', nargs='+', help='servers to query.\
+    parser.add_argument('servers', metavar='HOST:PORT', nargs='*', help='servers to query.\
             If --master or --all is used, these will be interpreted to be master servers.')
+    parser.add_argument('--list-gametypes', action='store_true', help='list all known gametypes')
     parser.add_argument('-m', '--master', action='store_true', help='query master servers instead of game servers')
     parser.add_argument('-a', '--all', action='store_true', help='query all the game servers a master returns')
     parser.add_argument('--no-colors', action='store_true', help='disable color output')
@@ -652,9 +691,29 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--empty', action='store_true', help='show empty servers')
     parser.add_argument('-b', '--bots', action='store_true', help='show bots')
     parser.add_argument('-s', '--sort', action='store_true', help='enable sorting')
+    parser.add_argument('-g', '--gametypes', nargs='+', help='restrict output to servers running the specified gametypes. Gametypes can be specified numerically or by name (see --list-gametypes)')
     parser.add_argument('--timeout', metavar='SECONDS', type=float, default=RESPONSE_TIMEOUT, help='timeout, in seconds')
     parser.add_argument('--retries', type=int, default=QUERY_RETRIES, help='number of retries')
     args = parser.parse_args()
+
+    if args.list_gametypes:
+        Gametype.printall()
+        sys.exit(0)
+
+    if len(args.servers) == 0:
+        parser.error("error: the following arguments are required: HOST:PORT")
+
+    if args.gametypes is not None:
+        try:
+            gametype_filter = Gametype.set_from_strs(args.gametypes)
+        except ArenaError as e:
+            print("Failed to parse gametype: {}".format(e), file=sys.stderr)
+            sys.exit(1)
+        if len(gametype_filter) == 0:
+            print("empty gametype list!", file=sys.stderr)
+            sys.exit(1)
+    else:
+        gametype_filter = None
 
     addrs = []
     for srv in args.servers:
@@ -695,7 +754,7 @@ if __name__ == '__main__':
     server_infos =  query_servers(server_addresses, args.timeout, args.retries)
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
-    pretty_print(server_infos, args.empty, colors, args.bots, args.sort)
+    pretty_print(server_infos, args.empty, colors, args.bots, args.sort, gametype_filter)
 
     sys.exit(0)
 
