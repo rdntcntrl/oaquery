@@ -599,6 +599,12 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
         fields.append(info.name().strip().getstr(colors))
 
         print(' '.join(fields))
+
+        fields = []
+        fields.append('Gametype:'.rjust(just))
+        fields.append(str(info.gametype()))
+        print(' '.join(fields))
+
         fields = []
         fields.append('Map:'.rjust(just))
         fields.append(info.map())
