@@ -101,6 +101,12 @@ class ServerInfo:
         except:
             return ""
 
+    def _getstatustr(self, key):
+        try:
+            return printable_string(self._getstatus(key))
+        except:
+            return ""
+
     def _getinfou(self, key):
         try:
             n = int(self._getinfo(key))
@@ -110,6 +116,14 @@ class ServerInfo:
 
     def map(self):
         return self._getinfostr(b'mapname')
+
+    def mod(self):
+        mod = self.game()
+        if len(mod) == 0:
+            mod = self._getstatustr(b'gamename')
+            if len(mod) == 0:
+                mod = "unknown"
+        return mod
 
     def game(self):
         return self._getinfostr(b'game')
@@ -623,7 +637,10 @@ def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
 
     return dispatcher.collect()
 
-def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False, gametype_filter=None):
+def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False,
+        gametype_filter=None, mod=False, mods_filter=None):
+    if mods_filter is not None:
+        mods_filter = set(mods_filter)
     if sort:
         serverinfos = sorted(serverinfos, key=lambda x: x.num_humans(), reverse=True)
     for info in serverinfos:
@@ -631,12 +648,20 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
             continue
         if gametype_filter is not None and info.gametype() not in gametype_filter:
             continue
+        if mods_filter is not None and info.mod() not in mods_filter:
+            continue
         just = 21
         fields = []
         fields.append(info.saddr().rjust(just))
         fields.append(info.name().strip().getstr(colors))
 
         print(' '.join(fields))
+
+        if mod:
+            fields = []
+            fields.append('Mod:'.rjust(just))
+            fields.append(str(info.mod()))
+            print(' '.join(fields))
 
         fields = []
         fields.append('Gametype:'.rjust(just))
@@ -647,6 +672,8 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
         fields.append('Map:'.rjust(just))
         fields.append(info.map())
         print(' '.join(fields))
+
+        info.game()
 
         fields = []
         fields.append('Players:'.rjust(just))
@@ -691,7 +718,10 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--empty', action='store_true', help='show empty servers')
     parser.add_argument('-b', '--bots', action='store_true', help='show bots')
     parser.add_argument('-s', '--sort', action='store_true', help='enable sorting')
-    parser.add_argument('-g', '--gametypes', nargs='+', help='restrict output to servers running the specified gametypes. Gametypes can be specified numerically or by name (see --list-gametypes)')
+    parser.add_argument('--mod', action='store_true', help='show mod')
+    parser.add_argument('--filter-mods', metavar='MOD', nargs='+', help='filter mods')
+    parser.add_argument('-g', '--gametypes', metavar='GT', nargs='+', help='filter servers by gametypes. \
+            Gametypes can be specified numerically or by name (see --list-gametypes)')
     parser.add_argument('--timeout', metavar='SECONDS', type=float, default=RESPONSE_TIMEOUT, help='timeout, in seconds')
     parser.add_argument('--retries', type=int, default=QUERY_RETRIES, help='number of retries')
     args = parser.parse_args()
@@ -754,7 +784,8 @@ if __name__ == '__main__':
     server_infos =  query_servers(server_addresses, args.timeout, args.retries)
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
-    pretty_print(server_infos, args.empty, colors, args.bots, args.sort, gametype_filter)
+    pretty_print(server_infos, args.empty, colors, args.bots, args.sort,
+            gametype_filter, args.mod, args.filter_mods)
 
     sys.exit(0)
 
