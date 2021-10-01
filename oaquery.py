@@ -685,8 +685,6 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
         fields.append(info.map())
         print(' '.join(fields))
 
-        info.game()
-
         fields = []
         fields.append('Players:'.rjust(just))
         nplayers = info.num_humans()
