@@ -648,6 +648,7 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
         mods_filter = set(mods_filter)
     if sort:
         serverinfos = sorted(serverinfos, key=lambda x: x.num_humans(), reverse=True)
+    first = True
     for info in serverinfos:
         if not (show_empty or info.num_humans()):
             continue
@@ -655,6 +656,12 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
             continue
         if mods_filter is not None and info.mod() not in mods_filter:
             continue
+
+        if first:
+            first = False
+        else:
+            print("")
+
         just = 21
         fields = []
         fields.append(info.saddr().rjust(just))
