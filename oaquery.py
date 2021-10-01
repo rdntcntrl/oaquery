@@ -713,7 +713,25 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
             fields.append(p.name.getstr(colors))
             print(' '.join(fields))
 
+def players_print(serverinfos, colors=False, bots=False,
+        gametype_filter=None, mods_filter=None):
+    if mods_filter is not None:
+        mods_filter = set(mods_filter)
+    serverinfos = sorted(serverinfos, key=lambda x: x.num_humans(), reverse=True)
+    for info in serverinfos:
+        if gametype_filter is not None and info.gametype() not in gametype_filter:
+            continue
+        if mods_filter is not None and info.mod() not in mods_filter:
+            continue
 
+        players = info.all_players() if bots else info.likely_human_players()
+        players = sorted(players, key=lambda p: p.score, reverse=True)
+        for p in players:
+            fields = []
+            fields.append(p.name.getstr(colors) + ' '*(30-len(p.name.getstr(False))))
+            fields.append(info.saddr().ljust(21))
+            fields.append(info.name().strip().getstr(colors))
+            print(' '.join(fields))
 
 
 if __name__ == '__main__':
@@ -730,6 +748,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--empty', action='store_true', help='show empty servers')
     parser.add_argument('-b', '--bots', action='store_true', help='show bots')
     parser.add_argument('-s', '--sort', action='store_true', help='enable sorting')
+    parser.add_argument('-p', '--players', action='store_true', help='list players instead of servers')
     parser.add_argument('--mod', action='store_true', help='show mod')
     parser.add_argument('--filter-mods', metavar='MOD', nargs='+', help='filter mods')
     parser.add_argument('-g', '--gametypes', metavar='GT', nargs='+', help='filter servers by gametypes. \
@@ -800,6 +819,12 @@ if __name__ == '__main__':
     server_infos = query_servers(server_addresses, args.timeout, args.retries)
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
+
+    if args.players:
+        players_print(server_infos, colors, args.bots,
+                gametype_filter, args.filter_mods)
+        sys.exit(0)
+
     pretty_print(server_infos, args.empty, colors, args.bots, args.sort,
             gametype_filter, args.mod, args.filter_mods)
 
