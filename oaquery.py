@@ -159,6 +159,12 @@ class ServerInfo:
             return self.all_players()
         return players
 
+    def all_info(self):
+        return ((printable_string(k), printable_string(v)) for k,v in self.info.items())
+
+    def all_status(self):
+        return ((printable_string(k), printable_string(v)) for k,v in self.status.items())
+
 def printable_string(s):
     s = s.decode(encoding='ascii', errors='replace')
     return ''.join((c if c.isprintable() else '\uFFFD' for c in s))
@@ -643,7 +649,7 @@ def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
     return dispatcher.collect()
 
 def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False,
-        gametype_filter=None, mod=False, mods_filter=None):
+        gametype_filter=None, mod=False, mods_filter=None, dump=False):
     if mods_filter is not None:
         mods_filter = set(mods_filter)
     if sort:
@@ -713,6 +719,15 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
             fields.append(p.name.getstr(colors))
             print(' '.join(fields))
 
+        if dump:
+            print('Info Variables:'.rjust(just))
+            for k,v in info.all_info():
+                print(" " * just + " {} {}".format(repr(k), repr(v)))
+            print('Status Variables:'.rjust(just))
+            for k,v in info.all_status():
+                print(" " * just + " {} {}".format(repr(k), repr(v)))
+
+
 def players_print(serverinfos, colors=False, bots=False,
         gametype_filter=None, mods_filter=None):
     if mods_filter is not None:
@@ -755,6 +770,7 @@ if __name__ == '__main__':
             Gametypes can be specified numerically or by name (see --list-gametypes)')
     parser.add_argument('--timeout', metavar='SECONDS', type=float, default=RESPONSE_TIMEOUT, help='timeout, in seconds')
     parser.add_argument('--retries', type=int, default=QUERY_RETRIES, help='number of retries')
+    parser.add_argument('--dump', action='store_true', help='dump complete list of info/status response variables')
     args = parser.parse_args()
 
     if args.list_gametypes:
@@ -826,7 +842,7 @@ if __name__ == '__main__':
         sys.exit(0)
 
     pretty_print(server_infos, args.empty, colors, args.bots, args.sort,
-            gametype_filter, args.mod, args.filter_mods)
+            gametype_filter, args.mod, args.filter_mods, args.dump)
 
     sys.exit(0)
 
