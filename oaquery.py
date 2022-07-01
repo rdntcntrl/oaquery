@@ -58,7 +58,7 @@ ARENA_HTML_COLORS = {
         '8' : 'ff6d00',
         }
 
-CHALLENGE_BYTES = 8
+CHALLENGE_BYTES = 12
 
 CONNECTIONLESS_PREFIX = b"\xff\xff\xff\xff"
 RESPONSE_INFO   = b"infoResponse\n"
@@ -432,7 +432,7 @@ def _parse_infostring(s):
             )
 
 def _generate_challenge(sz=CHALLENGE_BYTES):
-    return secrets.token_hex(sz).encode()
+    return secrets.token_urlsafe(sz).encode()
 
 class Query:
     def __init__(self, ip, port):
