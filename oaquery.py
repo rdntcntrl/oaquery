@@ -74,12 +74,13 @@ OPENARENA_DEFAULT_MASTER = "dpmaster.deathmask.net"
 
 
 class ServerInfo:
-    def __init__(self, ip, port, info, status, players):
+    def __init__(self, ip, port, info, status, players, ping):
         self.ip = ip
         self.port = port
         self.info = info
         self.status = status
         self.players = players
+        self.ping = ping
 
     def saddr(self):
         return "{}:{}".format(self.ip, self.port)
@@ -138,7 +139,10 @@ class ServerInfo:
             gtn = int(self._getinfo(b'gametype'))
             return Gametype(gtn)
         except (ValueError, KeyError):
-            return Gametype.UNKNOWN;
+            return Gametype.UNKNOWN
+
+    def pingstr(self):
+        return "{}ms".format(self.ping)
 
     def num_humans(self):
         return self._getinfou(b'g_humanplayers')
@@ -272,37 +276,37 @@ class Gametype(enum.IntEnum):
 
     def __str__(self):
         if self == Gametype.FFA:
-            return "Free For All";
+            return "Free For All"
         if self == Gametype.SINGLE_PLAYER:
-            return "Single Player";
+            return "Single Player"
         if self == Gametype.TOURNAMENT:
-            return "Tournament";
+            return "Tournament"
         if self == Gametype.TEAM:
-            return "Team Deathmatch";
+            return "Team Deathmatch"
         if self == Gametype.CTF:
-            return "Capture The Flag";
+            return "Capture The Flag"
         if self == Gametype.ONEFCTF:
-            return "One Flag CTF";
+            return "One Flag CTF"
         if self == Gametype.OBELISK:
-            return "Overload";
+            return "Overload"
         if self == Gametype.HARVESTER:
-            return "Harvester";
+            return "Harvester"
         if self == Gametype.ELIMINATION:
-            return "Elimination";
+            return "Elimination"
         if self == Gametype.CTF_ELIMINATION:
-            return "CTF Elimination";
+            return "CTF Elimination"
         if self == Gametype.LMS:
-            return "Last Man Standing";
+            return "Last Man Standing"
         if self == Gametype.DOUBLE_D:
-            return "Double Domination";
+            return "Double Domination"
         if self == Gametype.DOMINATION:
-            return "Domination";
+            return "Domination"
         if self == Gametype.TREASURE_HUNTER:
-            return "Treasure Hunter";
+            return "Treasure Hunter"
         if self == Gametype.MULTITOURNAMENT:
-            return "Multitournament";
+            return "Multitournament"
 
-        return "Unknown Gametype";
+        return "Unknown Gametype"
 
     @staticmethod
     def from_str(s):
@@ -378,9 +382,9 @@ class QueryDispatcher:
 
     def recv(self, timeout=RESPONSE_TIMEOUT):
         self._socket.setblocking(False)
-        late = time.time() + timeout
+        late = time.monotonic() + timeout
         while self.pending():
-            timeout = late - time.time()
+            timeout = late - time.monotonic()
             if timeout <= 0:
                 print("Warning: timed out waiting for response(s)", file=sys.stderr)
                 return False
@@ -468,33 +472,40 @@ class ServerQuery(Query):
     def build_info(self):
         if (self._info is None
                 or self._statusinfo is None
-                or self._players is None):
+                or self._players is None
+                or self._ping is None):
             return None
-        return ServerInfo(self.ip, self.port, self._info, self._statusinfo, self._players)
+        return ServerInfo(self.ip, self.port, self._info, self._statusinfo, self._players,
+                self._ping)
 
     def reset(self):
-        self._challenge_info = None
-        self._challenge_status = None
+        self._challenges_info = {}
+        self._challenges_status = {}
+        self._ping = None
 
     def pending_info(self):
-        return self._challenge_info is not None
+        return len(self._challenges_info) > 0
 
     def pending_status(self):
-        return self._challenge_status is not None
+        return len(self._challenges_status) > 0
 
     def pending(self):
         return self.pending_info() or self.pending_status()
 
+    def _store_challenge(self, challenges):
+        challenge = _generate_challenge()
+        challenges[challenge] = time.monotonic()
+        return challenge
+
+
     def send_getinfo(self, sock):
-        if not self._challenge_info:
-            self._challenge_info = _generate_challenge()
-        request = b"".join((b"getinfo ", self._challenge_info, b"\n"))
+        challenge = self._store_challenge(self._challenges_info)
+        request = b"".join((b"getinfo ", challenge, b"\n"))
         self._send_request(request, sock)
 
     def send_getstatus(self, sock):
-        if not self._challenge_status:
-            self._challenge_status = _generate_challenge()
-        request = b"".join((b"getstatus ", self._challenge_status, b"\n"))
+        challenge = self._store_challenge(self._challenges_status)
+        request = b"".join((b"getstatus ", challenge, b"\n"))
         self._send_request(request, sock)
 
     def retry(self, sock):
@@ -516,24 +527,39 @@ class ServerQuery(Query):
 
         raise ArenaError("unknown packet type")
 
+    def _verify_challengeresponse(self, challenges, response_info):
+        if b"challenge" not in response_info:
+            raise ArenaError("missing challenge in response")
+        challengeresponse = response_info[b"challenge"]
+        try:
+            sent_time = challenges[challengeresponse]
+        except KeyError:
+            raise ArenaError("invalid challenge response")
+        else:
+            # valid challenge
+            ping = round((time.monotonic() - sent_time) * 1000)
+            if self._ping is None:
+                self._ping = ping
+            else:
+                self._ping = min(ping, self._ping)
+
+        del response_info[b'challenge']
+
+        return response_info
+
+
     def _parse_inforesponse(self, data):
         info = _parse_infostring(data)
-        if b"challenge" not in info or info[b"challenge"] != self._challenge_info:
-            raise ArenaError("invalid challenge")
-        del info[b'challenge']
-        self._info = info
-        self._challenge_info = None
+        self._info = self._verify_challengeresponse(self._challenges_info, info)
+        self._challenges_info = {}
 
     def _parse_statusresponse(self, data):
         lines = data.split(b"\n")
         if len(lines) < 2:
             raise ArenaError("invalid status response format")
         info = _parse_infostring(lines[0])
-        if b"challenge" not in info or info[b"challenge"] != self._challenge_status:
-            raise ArenaError("invalid challenge")
-        del info[b'challenge']
-        self._statusinfo = info
-        self._challenge_status = None
+        self._statusinfo = self._verify_challengeresponse(self._challenges_status, info)
+        self._challenges_status = {}
         self._players = [p for p in [player_from_str(s) for s in lines[1:-1]] if p]
 
 class MasterQuery(Query):
@@ -651,7 +677,7 @@ def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
     return dispatcher.collect()
 
 def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False,
-        gametype_filter=None, mod=False, mods_filter=None, dump=False):
+        gametype_filter=None, mod=False, mods_filter=None, dump=False, ping=False):
     if mods_filter is not None:
         mods_filter = set(mods_filter)
     if sort:
@@ -692,6 +718,12 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
         fields.append('Map:'.rjust(just))
         fields.append(info.map())
         print(' '.join(fields))
+
+        if ping:
+            fields = []
+            fields.append('Ping:'.rjust(just))
+            fields.append(info.pingstr())
+            print(' '.join(fields))
 
         fields = []
         fields.append('Players:'.rjust(just))
@@ -765,8 +797,9 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--empty', action='store_true', help='show empty servers')
     parser.add_argument('-b', '--bots', action='store_true', help='show bots')
     parser.add_argument('-s', '--sort', action='store_true', help='enable sorting')
+    parser.add_argument('-P', '--ping', action='store_true', help='show server ping')
     parser.add_argument('-p', '--players', action='store_true', help='list players instead of servers')
-    parser.add_argument('--mod', action='store_true', help='show mod')
+    parser.add_argument('-M', '--mod', action='store_true', help='show mod')
     parser.add_argument('--filter-mods', metavar='MOD', nargs='+', help='filter mods')
     parser.add_argument('-g', '--gametypes', metavar='GT', nargs='+', help='filter servers by gametypes. \
             Gametypes can be specified numerically or by name (see --list-gametypes)')
@@ -844,7 +877,7 @@ if __name__ == '__main__':
         sys.exit(0)
 
     pretty_print(server_infos, args.empty, colors, args.bots, args.sort,
-            gametype_filter, args.mod, args.filter_mods, args.dump)
+            gametype_filter, args.mod, args.filter_mods, args.dump, args.ping)
 
     sys.exit(0)
 
