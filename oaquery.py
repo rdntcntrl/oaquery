@@ -377,6 +377,7 @@ class QueryDispatcher:
             query.retry(self._socket)
 
     def recv(self, timeout=RESPONSE_TIMEOUT):
+        self._socket.setblocking(False)
         late = time.time() + timeout
         while self.pending():
             timeout = late - time.time()
@@ -387,7 +388,7 @@ class QueryDispatcher:
             if not len(r):
                 continue
             try:
-                (data, raddr) = self._socket.recvfrom(MAX_MSGLEN, socket.MSG_DONTWAIT)
+                (data, raddr) = self._socket.recvfrom(MAX_MSGLEN)
             except BlockingIOError as e:
                 continue
             except OSError as e:
@@ -451,6 +452,7 @@ class Query:
         return (self.ip, self.port)
 
     def _send_request(self, request, sock):
+        sock.setblocking(True)
         sock.sendto(CONNECTIONLESS_PREFIX + request, (self.ip, self.port))
 
 class ServerQuery(Query):
