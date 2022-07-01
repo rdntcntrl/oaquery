@@ -66,11 +66,11 @@ RESPONSE_STATUS = b"statusResponse\n"
 RESPONSE_SERVERS   = b"getserversResponse"
 MAX_MSGLEN = 16384
 
-Q3A_PROTOCOL = 71
+Q3A_PROTOCOL = 68
 PORT_MASTER = 27950
 PORT_DEFAULT = 27960
 
-OPENARENA_DEFAULT_MASTER = "dpmaster.deathmask.net"
+OPENARENA_DEFAULT_MASTER = "master.quake3arena.com"
 
 
 class ServerInfo:
@@ -582,7 +582,7 @@ class MasterQuery(Query):
         elem_size = 7
         for ipport in (data[i:i+elem_size] for i in range(0, len(data), elem_size)):
             ipport = ipport[1:]
-            if ipport == b"EOT\0\0\0":
+            if ipport == b"EOT":
                 # last packet from master
                 self._pending = False
                 break
