@@ -236,6 +236,16 @@ class ArenaString:
         res.append('</font>')
         return ''.join(res)
 
+    def tag_str_pairs(self):
+        """Iterator over (colortag, s) pairs"""
+
+        pat = r'(\^[0-8])'
+        s = "^7" + self.s
+        lst = re.split(pat, s)
+        for (tag, fragment) in zip(itertools.islice(lst, 1, None, 2),
+                                   itertools.islice(lst, 2, None, 2)):
+            yield (tag.lstrip('^'), fragment)
+
 class Player:
     def __init__(self, name, score=0, ping=0):
         self.name = ArenaString(name)
