@@ -110,12 +110,15 @@ class ServerInfo:
         except:
             return ""
 
-    def _getinfou(self, key):
+    def _getinfoi(self, key):
         try:
             n = int(self._getinfo(key))
-            return n if n >= 0 else 0
+            return n
         except:
             return 0
+
+    def _getinfou(self, key):
+        return max(0, self._getinfoi(key))
 
     def map(self):
         return self._getinfostr(b'mapname')
@@ -147,11 +150,23 @@ class ServerInfo:
     def num_humans(self):
         return self._getinfou(b'g_humanplayers')
 
+    def num_bots(self):
+        return max(0, self.num_clients() - self.num_humans())
+
     def num_clients(self):
         return self._getinfou(b'clients')
 
     def maxclients(self):
         return self._getinfou(b'sv_maxclients')
+
+    def is_full(self):
+        return self.num_clients() >= self.maxclients()
+
+    def is_pure(self):
+        return self._getinfoi(b'pure') != 0
+
+    def is_private(self):
+        return self._getinfoi(b'g_needpass') != 0
 
     def all_players(self):
         return self.players
@@ -743,7 +758,7 @@ def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=F
         creset = ""
         if (colors):
             creset = COLOR_RESET
-            if nplayers >= maxclients:
+            if nplayers >= maxclients or info.is_full():
                 cformat = ARENA_COLORS['1']
             elif nplayers >= maxclients/4 * 3:
                 cformat = ARENA_COLORS['3']
