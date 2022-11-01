@@ -69,6 +69,7 @@ MAX_MSGLEN = 16384
 Q3A_PROTOCOL = 71
 PORT_MASTER = 27950
 PORT_DEFAULT = 27960
+PORT_SOURCE_DEFAULT = 27965
 
 OPENARENA_DEFAULT_MASTER = "dpmaster.deathmask.net"
 
@@ -368,6 +369,18 @@ class Gametype(enum.IntEnum):
 
 
 
+def create_socket(random_port=False):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    if random_port:
+        return sock
+    for localport in range(PORT_SOURCE_DEFAULT, PORT_SOURCE_DEFAULT + 10):
+        try:
+            sock.bind(('', localport))
+            return sock
+        except OSError as e:
+            continue
+    print("error binding local socket, using random source port", file=sys.stderr)
+    return sock
 
 class QueryDispatcher:
     def __init__(self, socket):
@@ -656,8 +669,8 @@ class ArenaError(Exception):
     def __init__(self, message):
         self.message = message
         
-def query_master(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES, empty=True):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def query_master(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES, empty=True, random_sport=False):
+    sock = create_socket(random_sport)
 
     dispatcher = QueryDispatcher(sock)
     for (ip, port) in addrs:
@@ -680,8 +693,8 @@ def print_addrs(addrs, sort=False):
     for (ip, port) in addrs:
         print(f"{ip}:{port}")
 
-def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES, random_sport=False):
+    sock = create_socket(random_sport)
 
     dispatcher = QueryDispatcher(sock)
     for (ip, port) in addrs:
@@ -831,6 +844,7 @@ if __name__ == '__main__':
     parser.add_argument('--timeout', metavar='SECONDS', type=float, default=RESPONSE_TIMEOUT, help='timeout, in seconds')
     parser.add_argument('--retries', type=int, default=QUERY_RETRIES, help='number of retries')
     parser.add_argument('--dump', action='store_true', help='dump complete list of info/status response variables')
+    parser.add_argument('--random-sport', action='store_true', default=False, help='use a random source port by default')
     args = parser.parse_args()
 
     if args.list_gametypes:
@@ -885,14 +899,14 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if args.all or args.master:
-        server_addresses = query_master(addrs, args.timeout, args.retries, args.empty)
+        server_addresses = query_master(addrs, args.timeout, args.retries, args.empty, args.random_sport)
         if not args.all:
             print_addrs(server_addresses, args.sort)
             sys.exit(0)
     else:
         server_addresses = addrs
 
-    server_infos = query_servers(server_addresses, args.timeout, args.retries)
+    server_infos = query_servers(server_addresses, args.timeout, args.retries, args.random_sport)
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
 
