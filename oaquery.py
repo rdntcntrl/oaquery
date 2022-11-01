@@ -593,12 +593,13 @@ class ServerQuery(Query):
 
     def _parse_statusresponse(self, data):
         lines = data.split(b"\n")
-        if len(lines) < 2:
-            raise ArenaError("invalid status response format")
         info = _parse_infostring(lines[0])
         self._statusinfo = self._verify_challengeresponse(self._challenges_status, info)
         self._challenges_status = {}
-        self._players = [p for p in [player_from_str(s) for s in lines[1:-1]] if p]
+        if len(lines) >= 2:
+            self._players = [p for p in [player_from_str(s) for s in lines[1:-1]] if p]
+        else:
+            self._players = []
 
 class MasterQuery(Query):
     def __init__(self, ip, port, empty=True):
