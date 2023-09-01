@@ -27,6 +27,7 @@ import secrets
 import re
 import enum
 import html
+import ipaddress
 
 import argparse
 
@@ -694,6 +695,29 @@ def print_addrs(addrs, sort=False):
     for (ip, port) in addrs:
         print(f"{ip}:{port}")
 
+def filter_addrs(addrs, exclude_ips, include_ips):
+    try:
+        exclude_ips = set((ipaddress.IPv4Address(ip) for ip in exclude_ips))
+        include_ips = set((ipaddress.IPv4Address(ip) for ip in include_ips))
+    except ipaddress.AddressValueError as e:
+        print(f"Error: invalid IP address: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    addrs_filtered = []
+    for (ip, port) in addrs:
+        try:
+            ip = ipaddress.IPv4Address(ip)
+        except ipaddress.AddressValueError as e:
+            printf(f"Warning: invalid IP address, ignoring: {e}", file=sys.stderr)
+            continue
+        if ip in exclude_ips:
+            continue
+        if len(include_ips) > 0:
+            if ip not in include_ips:
+                continue
+        addrs_filtered.append((str(ip), port))
+    return addrs_filtered
+
 def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES, random_sport=False):
     sock = create_socket(random_sport)
 
@@ -842,6 +866,10 @@ if __name__ == '__main__':
     parser.add_argument('--filter-mods', metavar='MOD', nargs='+', help='filter mods')
     parser.add_argument('-g', '--gametypes', metavar='GT', nargs='+', help='filter servers by gametypes. \
             Gametypes can be specified numerically or by name (see --list-gametypes)')
+    parser.add_argument('--ip-include', metavar='IP', nargs='+', default=[],
+            help='Only query game servers with specific IPs (use together with -a)')
+    parser.add_argument('--ip-exclude', metavar='IP', nargs='+', default=[],
+            help='Do not query specific game server IPs (use together with -a)')
     parser.add_argument('--timeout', metavar='SECONDS', type=float, default=RESPONSE_TIMEOUT, help='timeout, in seconds')
     parser.add_argument('--retries', type=int, default=QUERY_RETRIES, help='number of retries')
     parser.add_argument('--dump', action='store_true', help='dump complete list of info/status response variables')
@@ -906,6 +934,8 @@ if __name__ == '__main__':
             sys.exit(0)
     else:
         server_addresses = addrs
+
+    server_addresses = filter_addrs(server_addresses, args.ip_exclude, args.ip_include)
 
     server_infos = query_servers(server_addresses, args.timeout, args.retries, args.random_sport)
 
