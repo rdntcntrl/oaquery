@@ -708,7 +708,7 @@ def filter_addrs(addrs, exclude_ips, include_ips):
         try:
             ip = ipaddress.IPv4Address(ip)
         except ipaddress.AddressValueError as e:
-            printf(f"Warning: invalid IP address, ignoring: {e}", file=sys.stderr)
+            print(f"Warning: invalid IP address, ignoring: {e}", file=sys.stderr)
             continue
         if ip in exclude_ips:
             continue
