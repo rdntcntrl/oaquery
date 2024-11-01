@@ -225,18 +225,18 @@ class ArenaString:
     def normalize(self):
         normalized = self.strip()
         # remove color, collapse spaces
-        normalized.s = re.sub("\s+", " ", normalized.getstr(color=False))
+        normalized.s = re.sub(r"\s+", " ", normalized.getstr(color=False))
         return normalized
 
     def getstr(self, color=False):
-        pat = "\^[0-8]"
+        pat = r"\^[0-8]"
         if color:
             return ARENA_COLORS['7'] + re.sub(pat, termcolor, self.s) + COLOR_RESET
         return re.sub(pat, "", self.s)
 
     def gethtml(self, palette=ARENA_HTML_COLORS):
         res = []
-        pat = "\^[0-8]"
+        pat = r"\^[0-8]"
         lastidx = 0
         res.append(_html_fonttag(palette['7']))
         for match in re.finditer(pat, self.s):
@@ -672,22 +672,21 @@ class ArenaError(Exception):
         self.message = message
         
 def query_master(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES, empty=True, random_sport=False):
-    sock = create_socket(random_sport)
+    with create_socket(random_sport) as sock:
+        dispatcher = QueryDispatcher(sock)
+        for (ip, port) in addrs:
+            dispatcher.insert(MasterQuery(ip, port, empty))
 
-    dispatcher = QueryDispatcher(sock)
-    for (ip, port) in addrs:
-        dispatcher.insert(MasterQuery(ip, port, empty))
+        dispatcher.getservers()
+        while not dispatcher.recv(timeout) and retries > 0:
+            retries -= 1
+            dispatcher.retry()
 
-    dispatcher.getservers()
-    while not dispatcher.recv(timeout) and retries > 0:
-        retries -= 1
-        dispatcher.retry()
+        for query in dispatcher.master_queries():
+            if query.pending():
+                print("Warning: did not receive a valid getservers response from master {}".format(query.addr()), file=sys.stderr)
 
-    for query in dispatcher.master_queries():
-        if query.pending():
-            print("Warning: did not receive a valid getservers response from master {}".format(query.addr()), file=sys.stderr)
-
-    return dispatcher.collect_master()
+        return dispatcher.collect_master()
 
 def print_addrs(addrs, sort=False):
     if sort:
@@ -719,25 +718,24 @@ def filter_addrs(addrs, exclude_ips, include_ips):
     return addrs_filtered
 
 def query_servers(addrs, timeout=RESPONSE_TIMEOUT, retries=QUERY_RETRIES, random_sport=False):
-    sock = create_socket(random_sport)
+    with create_socket(random_sport) as sock:
+        dispatcher = QueryDispatcher(sock)
+        for (ip, port) in addrs:
+            dispatcher.insert(ServerQuery(ip, port))
 
-    dispatcher = QueryDispatcher(sock)
-    for (ip, port) in addrs:
-        dispatcher.insert(ServerQuery(ip, port))
+        dispatcher.getinfo()
+        dispatcher.getstatus()
+        while not dispatcher.recv(timeout) and retries > 0:
+            retries -= 1
+            dispatcher.retry()
 
-    dispatcher.getinfo()
-    dispatcher.getstatus()
-    while not dispatcher.recv(timeout) and retries > 0:
-        retries -= 1
-        dispatcher.retry()
+        for query in dispatcher.server_queries():
+            if query.pending_info():
+                print("Warning: did not receive a valid info response from {}".format(query.addr()), file=sys.stderr)
+            if query.pending_status():
+                print("Warning: did not receive a valid status response from {}".format(query.addr()), file=sys.stderr)
 
-    for query in dispatcher.server_queries():
-        if query.pending_info():
-            print("Warning: did not receive a valid info response from {}".format(query.addr()), file=sys.stderr)
-        if query.pending_status():
-            print("Warning: did not receive a valid status response from {}".format(query.addr()), file=sys.stderr)
-
-    return dispatcher.collect()
+        return dispatcher.collect()
 
 def pretty_print(serverinfos, show_empty=False, colors=False, bots=False, sort=False,
         gametype_filter=None, mod=False, mods_filter=None, dump=False, ping=False):
