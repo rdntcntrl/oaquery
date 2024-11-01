@@ -28,7 +28,7 @@ import re
 import enum
 import html
 import ipaddress
-
+import json
 import argparse
 
 RESPONSE_TIMEOUT = 1.0
@@ -262,6 +262,15 @@ class ArenaString:
         for (tag, fragment) in zip(itertools.islice(lst, 1, None, 2),
                                    itertools.islice(lst, 2, None, 2)):
             yield (tag.lstrip('^'), fragment)
+
+    def tag_str_dicts(self):
+        return [
+                {
+                 'colortag': tag,
+                 'text': s
+                }
+                for (tag, s) in self.tag_str_pairs()
+            ]
 
 class Player:
     def __init__(self, name, score=0, ping=0):
@@ -843,6 +852,43 @@ def players_print(serverinfos, colors=False, bots=False,
             fields.append(info.name().strip().getstr(colors))
             print(' '.join(fields))
 
+def json_print(serverinfos, pretty=True):
+    jsondata = {
+            'servers': []
+            }
+    serverinfos = sorted(serverinfos, key=lambda x: x.num_humans(), reverse=True)
+    for info in serverinfos:
+        jsonserver = {
+                'address': info.saddr(),
+                'clean_name': info.name().strip().getstr(color=False),
+                'parsed_name': info.name().strip().tag_str_dicts(),
+                'gametype': {
+                    'str': str(info.gametype()),
+                    'num': info.gametypenum(),
+                    },
+                'map': info.map(),
+                'ping': info.ping,
+                'players': [],
+                }
+        players = sorted(info.all_players(), key=lambda p: p.score, reverse=True)
+        for p in players:
+            jsonserver['players'].append(
+                {
+                    'clean_name': p.name.strip().getstr(color=False),
+                    'parsed_name': p.name.strip().tag_str_dicts(),
+                    'score': p.score,
+                    'ping': p.ping,
+                    'likely_human': p.likely_human(),
+                }
+                )
+
+        jsondata['servers'].append(jsonserver)
+
+    if pretty:
+        print(json.dumps(jsondata, indent=4))
+    else:
+        print(json.dumps(jsondata))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Query OpenArena servers.')
@@ -870,6 +916,9 @@ if __name__ == '__main__':
             help='Do not query specific game server IPs (use together with -a)')
     parser.add_argument('--timeout', metavar='SECONDS', type=float, default=RESPONSE_TIMEOUT, help='timeout, in seconds')
     parser.add_argument('--retries', type=int, default=QUERY_RETRIES, help='number of retries')
+    parser.add_argument('--json', action='store_true',
+            help='produce JSON output. Output filtering/formatting options (--filter-mods, --players, etc.) will be ignored.')
+    parser.add_argument('--json-pretty', action='store_true', help='Make JSON output pretty.')
     parser.add_argument('--dump', action='store_true', help='dump complete list of info/status response variables')
     parser.add_argument('--random-sport', action='store_true', default=False, help='use a random source port by default')
     args = parser.parse_args()
@@ -936,6 +985,11 @@ if __name__ == '__main__':
     server_addresses = filter_addrs(server_addresses, args.ip_exclude, args.ip_include)
 
     server_infos = query_servers(server_addresses, args.timeout, args.retries, args.random_sport)
+
+    if args.json:
+        json_print(server_infos, args.json_pretty)
+        sys.exit(0)
+
 
     colors = not args.no_colors and (args.colors or sys.stdout.isatty())
 
